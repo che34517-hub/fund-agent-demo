@@ -42,7 +42,7 @@ def _safe_ratio(num, den) -> np.ndarray:
 
 
 def load_data(path: Path = DATA_PATH) -> pd.DataFrame:
-    return pd.read_csv(path, parse_dates=["date"])
+    return pd.read_csv(path, parse_dates=["date"]).copy(deep=True)
 
 
 def platform_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -406,4 +406,4 @@ def write_approvals(plan: StrategyPlan, statuses: dict[int, str]) -> Path | None
 def load_approvals() -> pd.DataFrame:
     if not APPROVAL_PATH.exists():
         return pd.DataFrame(columns=_APPROVAL_COLUMNS)
-    return pd.read_csv(APPROVAL_PATH)
+    return pd.read_csv(APPROVAL_PATH).copy(deep=True)

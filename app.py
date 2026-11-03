@@ -101,14 +101,14 @@ ensure_data()
 # 数据源：优先使用已导入的各平台数据（多平台联合合并），否则回退到内置模拟数据
 uploaded_data = st.session_state.get("uploaded_data") or {}
 imported_frames = [
-    r.df.copy(deep=True) for r in list(uploaded_data.values())
+    importer.ensure_writable(r.df) for r in list(uploaded_data.values())
     if isinstance(r, importer.ImportResult) and r.ok and r.df is not None
 ]
 if imported_frames:
-    df = pd.concat(imported_frames, ignore_index=True).copy()  # 深拷贝，确保云端可写
+    df = importer.ensure_writable(pd.concat(imported_frames, ignore_index=True))
     data_source = "imported"
 else:
-    df = get_df()
+    df = importer.ensure_writable(get_df())
     data_source = "mock"
 
 # --------------------------------------------------------------------------- #

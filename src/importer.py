@@ -115,6 +115,22 @@ def _coerce_dates(series: pd.Series) -> pd.Series:
     return pd.to_datetime(series.map(_fmt), errors="coerce", format="mixed")
 
 
+def ensure_writable(df: pd.DataFrame) -> pd.DataFrame:
+    """深拷贝并确保所有底层 numpy 数组可写，杜绝只读数组进入后续计算。
+
+    openpyxl / Streamlit Cloud 在某些版本组合下会返回 writeable=False 的数组，
+    后续任何原地运算（如 ``valid &= mask``）都会抛 "output array is read-only"。
+    """
+    if df is None:
+        return df
+    df = df.copy(deep=True)
+    for col in df.columns:
+        arr = df[col].to_numpy()
+        if not arr.flags.writeable:
+            df[col] = arr.copy()
+    return df
+
+
 @dataclass
 class ImportResult:
     """导入结果：成功时携带归一化后的 DataFrame，失败时携带错误信息。"""
@@ -150,7 +166,7 @@ def read_uploaded(uploaded) -> pd.DataFrame:
         hdr = _detect_header_row(df0)
         df = df0.iloc[hdr + 1:].reset_index(drop=True)
         df.columns = [str(c).strip() for c in df0.iloc[hdr].tolist()]
-        return df.copy()  # 深拷贝，避免 openpyxl 返回的只读数组随 DataFrame 传递
+        return ensure_writable(df)
 
     for enc in ("utf-8-sig", "gb18030"):
         try:
@@ -158,14 +174,14 @@ def read_uploaded(uploaded) -> pd.DataFrame:
             hdr = _detect_header_row(df0)
             df = df0.iloc[hdr + 1:].reset_index(drop=True)
             df.columns = [str(c).strip() for c in df0.iloc[hdr].tolist()]
-            return df.copy()
+            return ensure_writable(df)
         except UnicodeDecodeError:
             continue
     df0 = pd.read_csv(io.BytesIO(raw), encoding="utf-8", errors="replace", header=None)
     hdr = _detect_header_row(df0)
     df = df0.iloc[hdr + 1:].reset_index(drop=True)
     df.columns = [str(c).strip() for c in df0.iloc[hdr].tolist()]
-    return df.copy()
+    return ensure_writable(df)
 
 
 def _build_lookup() -> dict[str, str]:
@@ -187,9 +203,9 @@ def check_and_normalize(df: pd.DataFrame, platform_label: str) -> ImportResult:
         res.errors.append("文件为空，或没有可识别的列。")
         return res
 
-    # 深拷贝：解除 openpyxl / 云端环境可能返回的只读 numpy 数组限制
+    # 深拷贝 + 强制可写：解除 openpyxl / 云端环境可能返回的只读 numpy 数组限制
     # （否则后续原地运算会抛出 "output array is read-only"）。
-    df = df.copy()
+    df = ensure_writable(df)
 
     lookup = _build_lookup()
     col_map: dict[str, str] = {}
@@ -213,16 +229,16 @@ def check_and_normalize(df: pd.DataFrame, platform_label: str) -> ImportResult:
 
     # ---- 解析日期与核心数值，构造有效行掩码 ----
     dates = _coerce_dates(df[col_map["date"]])
-    valid = np.asarray(dates.notna(), dtype=bool)
+    valid = np.asarray(dates.notna(), dtype=bool).copy()  # 显式可写副本
 
     parsed: dict[str, pd.Series] = {}
     parsed["spend"] = _to_numeric(df[col_map["spend"]])
-    valid &= np.asarray(parsed["spend"].notna(), dtype=bool)
+    valid = valid & np.asarray(parsed["spend"].notna(), dtype=bool)  # 非原地，避免只读写入
 
     for f in ("conversions", "impressions", "clicks", "gmv", "roi"):
         if f in col_map:
             parsed[f] = _to_numeric(df[col_map[f]])
-            valid &= np.asarray(parsed[f].notna(), dtype=bool)
+            valid = valid & np.asarray(parsed[f].notna(), dtype=bool)
 
     if int(valid.sum()) == 0:
         res.errors.append("所有数据行都无法通过「日期」或数字格式校验，请检查文件内容。")
@@ -313,7 +329,7 @@ def check_and_normalize(df: pd.DataFrame, platform_label: str) -> ImportResult:
     out["cpa"] = out["spend"] / out["conversions"].replace(0, np.nan)
 
     out = out[CANONICAL_COLUMNS]
-    res.df = out
+    res.df = ensure_writable(out)
     res.ok = True
     res.n_rows = len(out)
     return res
