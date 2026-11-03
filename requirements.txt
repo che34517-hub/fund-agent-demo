@@ -1,0 +1,16 @@
+# ---- Web 应用 ----
+streamlit>=1.36
+
+# ---- 数据处理 ----
+pandas>=2.0
+numpy>=1.26
+openpyxl>=3.1
+
+# ---- Schema / JSON Schema 约束 ----
+pydantic>=2.5
+
+# ---- LLM 调用（OpenAI 兼容协议，兼容 DeepSeek 等；如需 Anthropic 请另加 anthropic）----
+openai>=1.30
+
+# ---- 图表（可控配色，遵循统一视觉规范）----
+plotly>=5.20
