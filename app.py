@@ -2,6 +2,7 @@
 
 功能：
 - 多平台核心指标总览（KPI + 图表）；
+- 平台明细数据（单通道分析）；
 - 智能诊断预警卡片；
 - 策略建议审批台（逐条审批 + 一键审批回写）。
 """
@@ -37,6 +38,67 @@ from src.schemas import ACTION_TYPE_NAMES, PLATFORM_NAMES  # noqa: E402
 
 st.set_page_config(page_title="AdPilot 多平台广告投放 AI 助手", page_icon="📈", layout="wide")
 
+# ---- 侧边栏现代化样式：隐藏原生圆点，导航项全宽圆角浅色卡片化 ----
+NAV_CSS = """
+<style>
+/* 侧边栏整体 */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #f8fafd 0%, #f1f4fa 100%);
+    border-right: 1px solid #e6ebf3;
+}
+
+/* 导航标题样式化为小标题 */
+div[data-testid="stRadio"] > label[data-testid="stWidgetLabel"] {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8b94a7;
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+}
+
+/* 导航项：全宽圆角浅色卡片 */
+div[data-testid="stRadio"] div[role="radiogroup"] > label {
+    display: flex !important;
+    align-items: center;
+    width: 100% !important;
+    padding: 0.6rem 0.9rem !important;
+    margin: 0.22rem 0 !important;
+    border-radius: 0.75rem !important;
+    background: #f4f6fb !important;
+    border: 1px solid #e4e9f3 !important;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease,
+                box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+/* 隐藏原生单选框圆点（仅隐藏含 radio input 的首个 div，保留文字） */
+div[data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child:has(input[type="radio"]) {
+    display: none !important;
+}
+
+/* 悬停效果 */
+div[data-testid="stRadio"] div[role="radiogroup"] > label:hover {
+    background: #eaf0f9 !important;
+    border-color: #cdd9ee !important;
+    transform: translateX(3px);
+}
+
+/* 选中态：淡蓝高亮 + 加粗 */
+div[data-testid="stRadio"] div[role="radiogroup"] > label:has(input:checked) {
+    background: #dde9fb !important;
+    border-color: #a9c7f0 !important;
+    box-shadow: 0 3px 10px rgba(66, 105, 178, 0.14);
+}
+
+div[data-testid="stRadio"] div[role="radiogroup"] > label:has(input:checked) * {
+    color: #1d3d73 !important;
+    font-weight: 700 !important;
+}
+</style>
+"""
+st.markdown(NAV_CSS, unsafe_allow_html=True)
+
 # 统一视觉：平台固定分类色（Okabe-Ito 色盲友好，顺序固定，不随筛选变化）
 PLATFORM_ORDER = ["淘宝直通车", "抖音千川", "小红书聚光", "京东"]
 PALETTE = {
@@ -47,6 +109,15 @@ PALETTE = {
 }
 INK = "#3B3B3B"
 GRID = "#E4E4E4"
+
+# 明细表字段中文名（计划级 / 每日级共用）
+COL_CN = {
+    "platform": "平台", "platform_name": "平台名称", "plan_id": "计划ID",
+    "plan_name": "计划名称", "audience_id": "人群包ID", "days": "投放天数",
+    "spend": "消耗", "impressions": "展示", "clicks": "点击",
+    "conversions": "转化", "ctr": "CTR", "cvr": "CVR", "cpa": "CPA",
+    "gmv": "GMV", "roi": "ROI",
+}
 
 
 def _chart_layout(fig: go.Figure, showlegend: bool = False) -> go.Figure:
@@ -96,6 +167,15 @@ def get_df() -> pd.DataFrame:
     return load_data()
 
 
+def _ensure_strategy(view: pd.DataFrame, fingerprint):
+    """按需生成策略（AI 诊断与策略审批两页共用，按 fingerprint 缓存，不重复调用）。"""
+    if "strategy_plan" not in st.session_state or st.session_state.get("_fp") != fingerprint:
+        with st.spinner("正在生成策略建议…"):
+            st.session_state.strategy_plan = generate_strategy(view)
+            st.session_state._fp = fingerprint
+    return st.session_state.strategy_plan
+
+
 ensure_data()
 
 # 数据源：优先使用已导入的各平台数据（多平台联合合并），否则回退到内置模拟数据
@@ -111,17 +191,18 @@ else:
     df = importer.ensure_writable(get_df())
     data_source = "mock"
 
-# 页面导航标签
+# 页面导航标签（4 个核心模块，不含系统设置）
 NAV_OVERVIEW = "📊 广告投放总览"
+NAV_PLATFORM = "📈 平台明细数据"
 NAV_AI = "🤖 AI 智能诊断"
-NAV_SETTINGS = "⚙️ 系统设置"
+NAV_STRATEGY = "💡 策略审批与优化"
 
 # --------------------------------------------------------------------------- #
 # 侧边栏
 # --------------------------------------------------------------------------- #
 with st.sidebar:
     nav = st.sidebar.radio(
-        "🧭 页面导航", [NAV_OVERVIEW, NAV_AI, NAV_SETTINGS], key="nav_page"
+        "🧭 页面导航", [NAV_OVERVIEW, NAV_PLATFORM, NAV_AI, NAV_STRATEGY], key="nav_page"
     )
 
     st.header("📊 数据")
@@ -183,16 +264,25 @@ with st.sidebar:
                 st.session_state.pop(key, None)
             st.rerun()
 
+    # 底部：模型状态（不设独立设置页，轻量展示）
+    st.divider()
+    if LLM_API_KEY:
+        st.caption(f"🤖 LLM 已启用：`{LLM_MODEL}`")
+    else:
+        st.caption("🤖 规则引擎模式（未配置 API Key）")
+
 view = df[df["platform_name"].isin(selected)] if selected else df
 if view.empty:
     st.warning("请至少选择一个平台。")
     st.stop()
 
+fingerprint = tuple(sorted(selected))
+
 # --------------------------------------------------------------------------- #
 # 标题（全局）
 # --------------------------------------------------------------------------- #
 st.title("📈 AdPilot · 多平台广告投放 AI 助手")
-st.caption("淘宝直通车 · 抖音千川 · 小红书聚光 —— 晨间日报 / 智能诊断 / 策略审批")
+st.caption("淘宝直通车 · 抖音千川 · 小红书聚光 · 京东 —— 投放总览 / 平台明细 / 智能诊断 / 策略审批")
 
 # --------------------------------------------------------------------------- #
 # 页面 1：📊 广告投放总览
@@ -298,15 +388,6 @@ if nav == NAV_OVERVIEW:
             )
     st.plotly_chart(_chart_layout(fig, showlegend=True), use_container_width=True)
 
-    with st.expander("📋 计划明细数据"):
-        col_cn = {
-            "platform": "平台", "platform_name": "平台名称", "plan_id": "计划ID",
-            "plan_name": "计划名称", "audience_id": "人群包ID", "days": "投放天数",
-            "spend": "消耗", "impressions": "展示", "clicks": "点击",
-            "conversions": "转化", "ctr": "CTR", "cvr": "CVR", "cpa": "CPA",
-        }
-        st.dataframe(plan_summary(view).rename(columns=col_cn), use_container_width=True, hide_index=True)
-
     if st.button("🔄 重新生成模拟数据", use_container_width=True):
         write_csv(generate_data(seed=random.randint(1, 1_000_000)))
         get_df.clear()
@@ -315,7 +396,68 @@ if nav == NAV_OVERVIEW:
         st.rerun()
 
 # --------------------------------------------------------------------------- #
-# 页面 2：🤖 AI 智能诊断
+# 页面 2：📈 平台明细数据
+# --------------------------------------------------------------------------- #
+elif nav == NAV_PLATFORM:
+    st.subheader("📈 平台明细数据")
+    platform_names = sorted(view["platform_name"].unique().tolist())
+    plat = st.selectbox("选择广告渠道", platform_names, key="detail_platform")
+    pview = view[view["platform_name"] == plat]
+    if pview.empty:
+        st.info("该平台暂无数据。")
+    else:
+        ps = platform_summary(pview).iloc[0]
+        has_gmv = "gmv" in pview.columns and bool(pview["gmv"].notna().any())
+        gmv = float(pview["gmv"].sum()) if has_gmv else float("nan")
+        roi = gmv / float(ps["spend"]) if (has_gmv and ps["spend"]) else float("nan")
+
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1.metric("近 7 天消耗", f"¥{ps['spend']:,.0f}")
+        m2.metric("转化量", f"{int(ps['conversions']):,}")
+        m3.metric("CPA", f"¥{ps['cpa']:,.1f}" if pd.notna(ps['cpa']) else "—")
+        m4.metric("点击率 CTR", f"{ps['ctr']:.2%}" if pd.notna(ps['ctr']) else "—")
+        m5.metric("GMV", f"¥{gmv:,.0f}" if pd.notna(gmv) else "—")
+        m6.metric("ROI", f"{roi:.2f}" if pd.notna(roi) else "—")
+
+        st.markdown(f"**{plat} · 近 7 天消耗与 CPA 趋势**")
+        daily = pview.groupby("date", as_index=False).agg(
+            spend=("spend", "sum"), conversions=("conversions", "sum")
+        )
+        daily["cpa"] = np.where(daily["conversions"] > 0, daily["spend"] / daily["conversions"], np.nan)
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=daily["date"], y=daily["spend"], name="消耗",
+            marker_color=PALETTE.get(plat, "#888888"),
+            hovertemplate="%{x|%m-%d}<br>消耗 ¥%{y:,.0f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=daily["date"], y=daily["cpa"], name="CPA", mode="lines+markers",
+            line=dict(color="#E69F00", width=2.5),
+            marker=dict(size=6, color="#E69F00"), yaxis="y2",
+            hovertemplate="%{x|%m-%d}<br>CPA ¥%{y:,.1f}<extra></extra>",
+        ))
+        fig.update_layout(yaxis2=dict(overlaying="y", side="right", showgrid=False, title="CPA"))
+        st.plotly_chart(_chart_layout(fig, showlegend=True), use_container_width=True)
+
+        with st.expander(f"📋 {plat} · 计划明细数据", expanded=True):
+            st.dataframe(
+                plan_summary(pview).rename(columns=COL_CN),
+                use_container_width=True, hide_index=True,
+            )
+
+        daily_cols = ["date", "plan_name", "spend", "impressions", "clicks", "conversions", "cpa"]
+        if "gmv" in pview.columns:
+            daily_cols += ["gmv", "roi"]
+        daily_cn = {c: COL_CN.get(c, c) for c in daily_cols}
+        with st.expander(f"🗓️ {plat} · 每日明细数据"):
+            st.dataframe(
+                pview[daily_cols].sort_values("date").rename(columns=daily_cn),
+                use_container_width=True, hide_index=True,
+            )
+
+# --------------------------------------------------------------------------- #
+# 页面 3：🤖 AI 智能诊断
 # --------------------------------------------------------------------------- #
 elif nav == NAV_AI:
     st.subheader("🩺 智能诊断预警")
@@ -333,15 +475,16 @@ elif nav == NAV_AI:
         else:
             st.info(body)
 
-    fingerprint = tuple(sorted(selected))
-    if "strategy_plan" not in st.session_state or st.session_state.get("_fp") != fingerprint:
-        with st.spinner("正在生成策略建议…"):
-            st.session_state.strategy_plan = generate_strategy(view)
-            st.session_state._fp = fingerprint
-    plan = st.session_state.strategy_plan
-
+    plan = _ensure_strategy(view, fingerprint)
     st.subheader("🌅 晨间日报")
     st.info(plan.summary)
+    st.caption("💡 结构化策略建议（预算调整 / 优化方案）请在「💡 策略审批与优化」页面查看并审批。")
+
+# --------------------------------------------------------------------------- #
+# 页面 4：💡 策略审批与优化
+# --------------------------------------------------------------------------- #
+elif nav == NAV_STRATEGY:
+    plan = _ensure_strategy(view, fingerprint)
 
     st.subheader("✅ 策略建议审批台")
     if st.session_state.get("flash"):
@@ -412,23 +555,3 @@ elif nav == NAV_AI:
             st.caption("暂无回写记录。")
         else:
             st.dataframe(approvals, use_container_width=True, hide_index=True)
-
-# --------------------------------------------------------------------------- #
-# 页面 3：⚙️ 系统设置
-# --------------------------------------------------------------------------- #
-else:
-    st.subheader("🔑 模型 / API Key 配置")
-    if LLM_API_KEY:
-        st.success(f"✅ LLM 已启用：`{LLM_MODEL}`")
-    else:
-        st.info("未配置 API Key，当前使用内置规则引擎。")
-
-    st.markdown(
-        "AdPilot 的策略建议优先调用大模型（OpenAI 兼容协议，兼容 DeepSeek 等），"
-        "未配置 API Key 时自动回退到内置规则引擎。\n\n"
-        "**环境变量**：\n"
-        "- `LLM_API_KEY`（或 `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`）：API Key\n"
-        "- `LLM_BASE_URL`（或 `OPENAI_BASE_URL` / `DEEPSEEK_BASE_URL`）：接口地址（可选）\n"
-        "- `LLM_MODEL`：模型名（默认 `deepseek-chat`）\n\n"
-        "在 Streamlit Cloud 中可在「Settings → Secrets」里配置上述变量。"
-    )
