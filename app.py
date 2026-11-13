@@ -326,7 +326,7 @@ if nav == NAV_OVERVIEW:
     total_roi = total_gmv / total_spend if (has_gmv and total_spend) else float("nan")
 
     k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
-    k1.metric("近 7 天消耗", f"¥{total_spend:,.0f}")
+    k1.metric("总消耗", f"¥{total_spend:,.0f}")
     k2.metric("转化量", f"{total_conv:,}" if has_conv else "—")
     k3.metric("总成交额 GMV", f"¥{total_gmv:,.0f}" if pd.notna(total_gmv) else "—")
     k4.metric("整体 ROI", f"{total_roi:.2f}" if pd.notna(total_roi) else "—")
@@ -339,7 +339,7 @@ if nav == NAV_OVERVIEW:
 
     left, right = st.columns(2)
     with left:
-        st.markdown("**近 7 天消耗（按平台）**")
+        st.markdown("**总消耗（按平台）**")
         fig = go.Figure(go.Bar(
             x=pf["platform_name"],
             y=pf["spend"],
@@ -362,7 +362,7 @@ if nav == NAV_OVERVIEW:
         ))
         st.plotly_chart(_chart_layout(fig), use_container_width=True)
 
-    st.markdown("**近 7 天 CPA 趋势**")
+    st.markdown("**全周期 CPA 趋势**")
     daily = view.groupby(["date", "platform_name"], as_index=False).agg(
         spend=("spend", "sum"), conversions=("conversions", "sum")
     )
@@ -412,14 +412,14 @@ elif nav == NAV_PLATFORM:
         roi = gmv / float(ps["spend"]) if (has_gmv and ps["spend"]) else float("nan")
 
         m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("近 7 天消耗", f"¥{ps['spend']:,.0f}")
+        m1.metric("总消耗", f"¥{ps['spend']:,.0f}")
         m2.metric("转化量", f"{int(ps['conversions']):,}")
         m3.metric("CPA", f"¥{ps['cpa']:,.1f}" if pd.notna(ps['cpa']) else "—")
         m4.metric("点击率 CTR", f"{ps['ctr']:.2%}" if pd.notna(ps['ctr']) else "—")
         m5.metric("GMV", f"¥{gmv:,.0f}" if pd.notna(gmv) else "—")
         m6.metric("ROI", f"{roi:.2f}" if pd.notna(roi) else "—")
 
-        st.markdown(f"**{plat} · 近 7 天消耗与 CPA 趋势**")
+        st.markdown(f"**{plat} · 总消耗与 CPA 趋势**")
         daily = pview.groupby("date", as_index=False).agg(
             spend=("spend", "sum"), conversions=("conversions", "sum")
         )

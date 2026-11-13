@@ -101,7 +101,7 @@ def detect_anomalies(df: pd.DataFrame) -> list[dict]:
                 **base,
                 "level": "critical",
                 "title": f"无转化高消耗：{row['plan_name']}",
-                "detail": f"近 7 天消耗 ¥{row['spend']:,.0f}，转化 0 次，建议暂停止损。",
+                "detail": f"累计消耗 ¥{row['spend']:,.0f}，转化 0 次，建议暂停止损。",
             })
             continue
         if pd.isna(cpa) or pd.isna(med):
@@ -221,9 +221,9 @@ def _build_messages(plan_df, platform_df, anomalies, rules_text, report_date) ->
     user = "\n\n".join([
         "# 报告日期",
         report_date,
-        "# 分平台概览（近 7 天）",
+        "# 分平台概览（累计）",
         platform_df.to_json(orient="records", force_ascii=False),
-        "# 计划明细（近 7 天汇总）",
+        "# 计划明细（累计汇总）",
         plan_df.to_json(orient="records", force_ascii=False),
         "# 诊断异常",
         json.dumps(anomalies, ensure_ascii=False, default=str),
@@ -254,7 +254,7 @@ def rule_based_strategy(plan_df, platform_df, anomalies, report_date) -> Strateg
             actions.append(StrategyAction(
                 plan_id=plan_id, plan_name=row["plan_name"], platform=row["platform"],
                 action_type=ActionType.PAUSE_PLAN, adjustment_ratio=-1.0,
-                adjustment_reason=f"近 7 天消耗 ¥{row['spend']:,.0f} 但转化 0 次，建议暂停止损。",
+                adjustment_reason=f"累计消耗 ¥{row['spend']:,.0f} 但转化 0 次，建议暂停止损。",
                 confidence=0.9,
             ))
             continue
@@ -315,7 +315,7 @@ def _build_summary(platform_df, anomalies, actions) -> str:
     n_warning = sum(1 for a in anomalies if a["level"] == "warning")
     n_info = sum(1 for a in anomalies if a["level"] == "info")
 
-    parts = [f"近 7 天三平台合计消耗 ¥{total_spend:,.0f}，总转化 {total_conv:,} 次，整体 CPA ¥{total_cpa:.1f}。"]
+    parts = [f"累计三平台合计消耗 ¥{total_spend:,.0f}，总转化 {total_conv:,} 次，整体 CPA ¥{total_cpa:.1f}。"]
     if n_critical or n_warning or n_info:
         parts.append(f"诊断发现 {n_critical} 条严重预警、{n_warning} 条提醒、{n_info} 条受众重叠提示。")
     if total_conv:
